@@ -3,11 +3,12 @@
  * 
  * 👨‍🏫 Autor: Ing. Saúl Isaí Soto Ortiz (ITSOEH)
  * 
- * Descripción: Lee audio continuo, lo procesa con la red neuronal exportada
- * de Edge Impulse y enciende LEDs según la palabra clave detectada.
+ * Descripción: Lee ventanas exactas de audio (1 segundo), las procesa 
+ * con Edge Impulse e imprime en pantalla TODOS los porcentajes para 
+ * que los alumnos entiendan cómo "piensa" la red neuronal en tiempo real.
  */
 
-// ⚠️ MODIFICA ESTA LÍNEA POR EL NOMBRE DE TU LIBRERÍA ZIP DESCARGADA
+// ⚠️ MODIFICA ESTA LÍNEA POR EL NOMBRE EXACTO DE TU LIBRERÍA ZIP DESCARGADA
 #include <TU_PROYECTO_inferencing.h> 
 
 #include <ESP_I2S.h>
@@ -21,8 +22,18 @@ const int PIN_MIC_DATA = 41;
 
 I2SClass I2S;
 
-#define BUFFER_SIZE 512
+// 🛡️ CORRECCIÓN: Leemos exactamente el tamaño del audio con el que 
+// entrenaste la IA (EI_CLASSIFIER_RAW_SAMPLE_COUNT = 16000 muestras = 1 segundo).
+#define BUFFER_SIZE EI_CLASSIFIER_RAW_SAMPLE_COUNT
 int16_t audio_buffer[BUFFER_SIZE];
+
+// FUNCIÓN CALLBACK: El "puente" oficial para Edge Impulse
+int microphone_audio_signal_get_data(size_t offset, size_t length, float *out_ptr) {
+  for (size_t i = 0; i < length; i++) {
+    out_ptr[i] = (float)audio_buffer[offset + i];
+  }
+  return 0; 
+}
 
 // Función para subir el volumen digitalmente (Ganancia x16)
 void scaleVolume(int16_t* audioData, size_t sampleCount) {
@@ -36,7 +47,7 @@ void setup() {
   Serial.begin(115200);
   while (!Serial) { delay(10); }
   
-  Serial.println("\n🚀 FASE 3: Sistema de IA Escuchando...");
+  Serial.println("\n🚀 FASE 3: Sistema de IA Listo. Iniciando micrófono...");
 
   pinMode(LED_RED, OUTPUT);
   pinMode(LED_YELLOW, OUTPUT);
@@ -48,11 +59,13 @@ void setup() {
     while (1); 
   }
   
-  run_classifier_init(); // Iniciar motor de Inteligencia Artificial
+  Serial.println("✅ Todo correcto. ¡Comienza a hablar!");
 }
 
 void loop() {
-  // 1. LEER AUDIO
+  Serial.println("\n🎙️ Escuchando (1 segundo)...");
+
+  // 1. LEER AUDIO (Se quedará aquí exactamente 1 segundo recopilando datos)
   for (int i = 0; i < BUFFER_SIZE; i++) {
     audio_buffer[i] = (int16_t)I2S.read();
   }
@@ -60,36 +73,43 @@ void loop() {
   // 2. APLICAR GANANCIA (Subir volumen)
   scaleVolume(audio_buffer, BUFFER_SIZE);
 
-  // 3. ENVIAR A EDGE IMPULSE
+  // 3. SEÑAL PARA EDGE IMPULSE
   signal_t signal;
-  if (numpy::audio_to_signal(audio_buffer, BUFFER_SIZE, &signal) != 0) return;
+  signal.total_length = BUFFER_SIZE;
+  signal.get_data = &microphone_audio_signal_get_data;
 
-  // 4. INFERENCIA CONTINUA
+  // 4. EJECUTAR INFERENCIA (Clasificador estándar)
   ei_impulse_result_t result = { 0 };
-  if (run_classifier_continuous(&signal, &result, false) != EI_IMPULSE_OK) return;
+  EI_IMPULSE_ERROR res = run_classifier(&signal, &result, false);
 
-  // 5. EVALUAR Y ACCIONAR
+  if (res != EI_IMPULSE_OK) {
+    Serial.printf("❌ Error de inferencia (%d)\n", res);
+    return;
+  }
+
+  // 5. MOSTRAR PENSAMIENTO DE LA IA EN PANTALLA
+  Serial.println("🧠 Resultados de la IA:");
   for (size_t ix = 0; ix < EI_CLASSIFIER_LABEL_COUNT; ix++) {
     
-    // Si la IA está más de un 80% segura
+    // Imprimimos el nombre de la etiqueta y su porcentaje de probabilidad
+    Serial.printf("    %s: %.0f%%\n", result.classification[ix].label, result.classification[ix].value * 100.0);
+
+    // 6. ACCIONAR LEDS (Si está más del 80% seguro de una palabra clave)
     if (result.classification[ix].value > 0.80) {
-      
       String palabraDetectada = result.classification[ix].label;
       
       if (palabraDetectada == "red") {
-        Serial.println("🔴 Comando detectado: RED -> LED Rojo ON");
         encenderUnSoloLed(LED_RED);
       } 
       else if (palabraDetectada == "yellow") {
-        Serial.println("🟡 Comando detectado: YELLOW -> LED Amarillo ON");
         encenderUnSoloLed(LED_YELLOW);
       } 
       else if (palabraDetectada == "green") {
-        Serial.println("🟢 Comando detectado: GREEN -> LED Verde ON");
         encenderUnSoloLed(LED_GREEN);
       }
     }
   }
+  Serial.println("-------------------------");
 }
 
 void encenderUnSoloLed(int led_elegido) {
