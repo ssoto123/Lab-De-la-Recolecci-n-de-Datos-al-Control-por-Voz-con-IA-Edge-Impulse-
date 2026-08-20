@@ -1,4 +1,4 @@
-# 🗣️ Laboratorio Completo: De la Recolección de Datos al Control por Voz con IA (Edge Impulse)
+# 🗣️ Laboratorio Completo: Recolección de Datos Control por Voz con IA (Edge Impulse)
 
 **👨‍🏫 Profesor:** Ing. Saúl Isaí Soto Ortiz (Titular A)   
 **🎓 Asignatura / Club:** Internet of Things (IoT) & Networking  
